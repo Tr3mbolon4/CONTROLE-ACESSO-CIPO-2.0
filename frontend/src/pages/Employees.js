@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { employeesAPI, agendamentosAPI } from '../services/api';
+import { formatApiError } from '../utils/errorUtils';
 import { printEmployees } from '../utils/printUtils';
 import { 
   Plus, 
@@ -136,7 +137,7 @@ const Employees = () => {
       loadAgendamentos();
       setActiveTab('ativos');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao dar entrada');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao dar entrada'));
     }
   };
 
@@ -154,7 +155,7 @@ const Employees = () => {
       resetForm();
       loadEmployees();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao salvar');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao salvar'));
     }
   };
 

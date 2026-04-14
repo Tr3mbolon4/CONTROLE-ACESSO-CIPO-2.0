@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { visitorsAPI, agendamentosAPI } from '../services/api';
+import { formatApiError } from '../utils/errorUtils';
 import { printVisitors } from '../utils/printUtils';
 import { 
   Plus, 
@@ -121,7 +122,7 @@ const Visitors = () => {
       loadAgendamentos();
       setActiveTab('ativos');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao dar entrada');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao dar entrada'));
     }
   };
 
@@ -139,7 +140,7 @@ const Visitors = () => {
       resetForm();
       loadVisitors();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao salvar');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao salvar'));
     }
   };
 

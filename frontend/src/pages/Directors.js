@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { directorsAPI, agendamentosAPI } from '../services/api';
+import { formatApiError } from '../utils/errorUtils';
 import { printDirectors } from '../utils/printUtils';
 import { 
   Plus, 
@@ -127,7 +128,7 @@ const Directors = () => {
       loadAgendamentos();
       setActiveTab('presentes');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao dar entrada');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao dar entrada'));
     }
   };
 
@@ -251,7 +252,7 @@ const Directors = () => {
       resetForm();
       loadDirectors();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao salvar');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao salvar'));
     }
   };
 

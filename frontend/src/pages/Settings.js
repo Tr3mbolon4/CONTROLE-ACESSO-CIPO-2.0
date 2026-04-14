@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usersAPI } from '../services/api';
+import { formatApiError } from '../utils/errorUtils';
 import { 
   Plus, 
   Pencil, 
@@ -107,7 +108,7 @@ const Settings = () => {
       resetForm();
       loadUsers();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao salvar');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao salvar'));
     }
   };
 

@@ -238,6 +238,159 @@ class CipolattiAPITester:
             return True
         return False
 
+    def test_agendamento_creation_carregamento(self):
+        """Test creating agendamento with carregamento type"""
+        agendamento_data = {
+            "tipo": "carregamento",
+            "data_prevista": "2025-01-15",
+            "hora_prevista": "14:30",
+            "placa_carreta": "ABC1234",
+            "placa_cavalo": "XYZ5678",
+            "cubagem": "50m³",
+            "motorista": "JOÃO SILVA",
+            "empresa_terceirizada": "TRANSPORTES TESTE LTDA",
+            "destino": "SHOPPING CENTER TESTE",
+            "observacao": "Teste de agendamento via API"
+        }
+        
+        success, response, _ = self.run_test(
+            "Create Carregamento Agendamento",
+            "POST",
+            "agendamentos",
+            200,
+            data=agendamento_data
+        )
+        
+        if success:
+            self.test_agendamento_id = response.get('id')
+            print(f"   Created agendamento: {response.get('tipo')} for {response.get('data_prevista')}")
+            return True
+        return False
+
+    def clean_form_data(self, data):
+        """Clean form data by converting empty strings to None (like frontend cleanFormData)"""
+        cleaned = {}
+        for key, value in data.items():
+            if value == '' or value is None:
+                cleaned[key] = None
+            else:
+                cleaned[key] = value
+        return cleaned
+
+    def test_agendamento_creation_with_empty_km(self):
+        """Test creating agendamento with empty km_saida (should convert to null)"""
+        agendamento_data = {
+            "tipo": "frota",
+            "data_prevista": "2025-01-15",
+            "hora_prevista": "15:00",
+            "carro": "FIAT STRADA",
+            "placa": "DEF9876",
+            "motorista": "MARIA SANTOS",
+            "destino": "CENTRO DA CIDADE",
+            "km_saida": "",  # Empty string should be converted to null
+            "observacao": "Teste com km_saida vazio"
+        }
+        
+        # Clean the data like frontend does
+        cleaned_data = self.clean_form_data(agendamento_data)
+        
+        success, response, _ = self.run_test(
+            "Create Frota Agendamento (Empty KM)",
+            "POST",
+            "agendamentos",
+            200,
+            data=cleaned_data
+        )
+        
+        if success:
+            print(f"   Created frota agendamento with empty km_saida successfully")
+            return True
+        return False
+
+    def test_agendamento_creation_visitante(self):
+        """Test creating agendamento with visitante type"""
+        agendamento_data = {
+            "tipo": "visitante",
+            "data_prevista": "2025-01-16",
+            "hora_prevista": "10:00",
+            "nome": "CARLOS TESTE",
+            "placa": "GHI5432",
+            "observacao": "Visitante para reunião"
+        }
+        
+        success, response, _ = self.run_test(
+            "Create Visitante Agendamento",
+            "POST",
+            "agendamentos",
+            200,
+            data=agendamento_data
+        )
+        
+        if success:
+            print(f"   Created visitante agendamento: {response.get('nome')}")
+            return True
+        return False
+
+    def test_agendamento_creation_funcionario(self):
+        """Test creating agendamento with funcionario type"""
+        agendamento_data = {
+            "tipo": "funcionario",
+            "data_prevista": "2025-01-17",
+            "hora_prevista": "08:00",
+            "nome": "PEDRO FUNCIONARIO",
+            "setor": "VENDAS",
+            "responsavel": "GERENTE VENDAS",
+            "tipo_permissao": "saida_antecipada",
+            "hora_permitida": "16:00",
+            "observacao": "Saída antecipada autorizada"
+        }
+        
+        success, response, _ = self.run_test(
+            "Create Funcionario Agendamento",
+            "POST",
+            "agendamentos",
+            200,
+            data=agendamento_data
+        )
+        
+        if success:
+            print(f"   Created funcionario agendamento: {response.get('nome')} - {response.get('tipo_permissao')}")
+            return True
+        return False
+
+    def test_agendamentos_list(self):
+        """Test listing agendamentos"""
+        success, response, _ = self.run_test(
+            "List Agendamentos",
+            "GET",
+            "agendamentos",
+            200
+        )
+        
+        if success:
+            items = response.get('items', [])
+            print(f"   Found {len(items)} agendamentos")
+            return True
+        return False
+
+    def test_dar_entrada_agendamento(self):
+        """Test dar entrada functionality"""
+        if not hasattr(self, 'test_agendamento_id') or not self.test_agendamento_id:
+            self.log_test("Dar Entrada Agendamento", False, "No test agendamento created")
+            return False
+            
+        success, response, _ = self.run_test(
+            "Dar Entrada Agendamento",
+            "POST",
+            f"agendamentos/{self.test_agendamento_id}/dar-entrada",
+            200
+        )
+        
+        if success:
+            print(f"   Entrada registered: {response.get('tipo')} -> {response.get('registro_id')}")
+            return True
+        return False
+
     def cleanup_test_user(self):
         """Clean up test user if created"""
         if self.test_user_id:
@@ -270,6 +423,12 @@ def main():
         ("List Users", tester.test_users_list),
         ("Create New User", tester.test_create_user),
         ("New User Login", tester.test_new_user_login),
+        ("Create Carregamento Agendamento", tester.test_agendamento_creation_carregamento),
+        ("Create Frota Agendamento (Empty KM)", tester.test_agendamento_creation_with_empty_km),
+        ("Create Visitante Agendamento", tester.test_agendamento_creation_visitante),
+        ("Create Funcionario Agendamento", tester.test_agendamento_creation_funcionario),
+        ("List Agendamentos", tester.test_agendamentos_list),
+        ("Dar Entrada Agendamento", tester.test_dar_entrada_agendamento),
         ("Logout", tester.test_logout),
         ("Auth After Logout", tester.test_auth_after_logout),
     ]

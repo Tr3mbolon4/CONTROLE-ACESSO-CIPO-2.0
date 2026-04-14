@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { agendamentosAPI } from '../services/api';
+import { formatApiError, cleanFormData } from '../utils/errorUtils';
 import { 
   Plus, 
   MagnifyingGlass, 
@@ -136,18 +137,23 @@ const Agendamentos = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const dataToSend = cleanFormData(formData);
+      // Ensure km_saida is a number if provided
+      if (dataToSend.km_saida !== null) {
+        dataToSend.km_saida = parseFloat(dataToSend.km_saida) || null;
+      }
       if (selectedAgendamento) {
-        await agendamentosAPI.update(selectedAgendamento.id, formData);
+        await agendamentosAPI.update(selectedAgendamento.id, dataToSend);
         toast.success('Agendamento atualizado');
       } else {
-        await agendamentosAPI.create(formData);
+        await agendamentosAPI.create(dataToSend);
         toast.success('Agendamento criado');
       }
       setDialogOpen(false);
       resetForm();
       loadAgendamentos();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao salvar');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao salvar'));
     }
   };
 

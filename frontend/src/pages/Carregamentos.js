@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { carregamentosAPI, agendamentosAPI } from '../services/api';
+import { formatApiError, cleanFormData } from '../utils/errorUtils';
 import { 
   Plus, 
   MagnifyingGlass, 
@@ -159,21 +160,21 @@ const Carregamentos = () => {
       loadAgendamentos();
       setActiveTab('em_andamento');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao dar entrada');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao dar entrada'));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await carregamentosAPI.create(formData);
+      await carregamentosAPI.create(cleanFormData(formData));
       toast.success('Carregamento registrado');
       setDialogOpen(false);
       resetForm();
       loadCarregamentos();
       loadAgendamentos();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erro ao registrar');
+      toast.error(formatApiError(error.response?.data?.detail, 'Erro ao registrar'));
     }
   };
 
