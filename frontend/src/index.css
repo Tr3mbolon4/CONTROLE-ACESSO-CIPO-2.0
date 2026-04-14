@@ -130,3 +130,15 @@ input:-webkit-autofill:focus {
 [data-debug-wrapper="true"] {
   display: contents !important;
 }
+
+
+/* Hide Emergent preview badge (only appears in preview environment) */
+#emergent-made-with-badge,
+[data-emergent-badge],
+a[href*="emergent.sh"][style*="position: fixed"],
+div[style*="position: fixed"][style*="z-index"]:has(a[href*="emergent"]) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
