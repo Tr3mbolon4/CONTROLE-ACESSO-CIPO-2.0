@@ -61,7 +61,17 @@ Sistema de Controle de Acesso CIPOLATTI - repositório GitHub existente com bugs
 - Frontend: 100% (10/10 testes)
 - Overall: 100% (21/21 testes)
 
-## Backlog (P1)
+## Correções Realizadas (2026-04-14) - Agendamentos 422 + React Crash
+
+### 5. Erro 422 ao criar agendamento CORRIGIDO
+**Causa raiz:** Frontend enviava strings vazias `""` para campos `Optional[float]` como `km_saida`, e Pydantic não conseguia converter `""` em float
+- **Fix:** Criada função `cleanFormData()` em `/app/frontend/src/utils/errorUtils.js` que converte strings vazias para `null` antes de enviar ao API
+- **Fix:** Aplicada em Agendamentos.js e Carregamentos.js
+
+### 6. React crash "Objects are not valid as a React child" CORRIGIDO
+**Causa raiz:** `toast.error(error.response?.data?.detail)` tentava renderizar o array de objetos do 422 `[{type, loc, msg, input, url}]` como JSX
+- **Fix:** Criada função `formatApiError()` que converte objetos de erro do FastAPI em strings legíveis
+- **Fix:** Aplicada em 13 ocorrências em 7 arquivos (Agendamentos, Carregamentos, Directors, Employees, Fleet, Settings, Visitors)
 - Missing hook dependencies em useEffect (warnings, não causam bugs)
 - Refatoração de componentes grandes (700-1200 linhas)
 - Refatoração de funções backend complexas (dar_entrada_agendamento)
