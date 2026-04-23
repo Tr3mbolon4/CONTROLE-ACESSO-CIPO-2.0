@@ -1,0 +1,85 @@
+# =============================================================================
+# CIPOLATTI - Configuração Nginx (proxy reverso + SSL + frontend estático)
+# =============================================================================
+# Coloque este arquivo em /etc/nginx/sites-available/cipolatti e crie um
+# symlink em /etc/nginx/sites-enabled/cipolatti. Depois rode:
+#   sudo nginx -t && sudo systemctl reload nginx
+# =============================================================================
+
+# --- HTTP (porta 80): redireciona TUDO para HTTPS ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name portaria.suaempresa.com.br;
+
+    # Path usado pelo Certbot (desafio ACME HTTP-01)
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# --- HTTPS (porta 443): frontend estático + proxy para o backend ---
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name portaria.suaempresa.com.br;
+
+    # Certificados gerenciados pelo certbot.
+    ssl_certificate     /etc/letsencrypt/live/portaria.suaempresa.com.br/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/portaria.suaempresa.com.br/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Segurança HTTP
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    client_max_body_size 25m;
+
+    # ================== FRONTEND (SPA React - build estático) ==================
+    root /opt/cipolatti/frontend/build;
+    index index.html;
+
+    # Cache agressivo de assets com hash
+    location /static/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # SPA fallback (React Router)
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # ================== BACKEND (FastAPI em 127.0.0.1:8001) ==================
+    location /api/ {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+
+        # Cookies/credenciais
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+
+        # Timeouts generosos para uploads de foto e relatórios
+        proxy_connect_timeout 30s;
+        proxy_send_timeout    120s;
+        proxy_read_timeout    120s;
+
+        # Não buferizar respostas streaming (downloads)
+        proxy_buffering off;
+    }
+
+    # Logs por domínio
+    access_log /var/log/nginx/cipolatti.access.log;
+    error_log  /var/log/nginx/cipolatti.error.log;
+}

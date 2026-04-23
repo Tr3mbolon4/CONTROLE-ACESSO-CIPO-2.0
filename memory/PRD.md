@@ -58,7 +58,34 @@ O usuário pediu para "Assume Default and Proceed" — ou seja, detectar e aplic
 - Adicionar testes unitários de frontend (Playwright).
 - Forçar normalização UTC em todos os writes ao Mongo para eliminar ambiguidade timezone.
 
+## Iteração 2 (2026-04-23) - Seed de dados + Pacote Deploy Debian
+
+### Seed de dados (`/app/backend/seed_data.py`)
+Script idempotente executado com sucesso. Popula:
+- 4 usuários extras (portaria@/gestor@/dsl@/diretoria@portaria.com, senhas `portaria123`/`gestor123`/`dsl123`/`diretoria123`)
+- 10 visitantes, 6 registros de frota (3 em_uso + 3 retornados), 8 funcionários, 5 diretores (presentes/almoço/saíram)
+- 8 agendamentos variados (carregamento/visitante/funcionário/diretoria/frota, hoje + 2 próximos dias)
+- 6 carregamentos (em_carregamento + finalizados)
+- Validação via API: dashboard mostra 11 visitors, 6 fleet, 9 employees, 5 directors, 7 carregamentos, 8 agendamentos totais.
+
+### Pacote de deploy Debian (`/app/deploy/`)
+Estrutura entregue:
+- `install_debian.sh` — instala Node 20, Python venv, MongoDB 7, Nginx, Certbot; cria usuário `cipolatti`, clona repo, gera `JWT_SECRET` aleatório, builda frontend, emite certificado Let's Encrypt, habilita serviços no boot.
+- `update_debian.sh` — pull + rebuild + restart com `mongodump` automático em `/var/backups/cipolatti/`.
+- `systemd/cipolatti-backend.service` — uvicorn com 2 workers, `--proxy-headers --forwarded-allow-ips="*"`, autostart, logs em `/var/log/cipolatti/`, hardening (`ProtectSystem`, `PrivateTmp`, `NoNewPrivileges`).
+- `nginx/cipolatti` — vhost TLS (443) com HSTS, HTTP→HTTPS redirect, SPA fallback, proxy `/api → 127.0.0.1:8001`, cache de `/static/`, `client_max_body_size 25m`.
+- `backend.env.example` / `frontend.env.example` — templates com placeholders de domínio.
+- `README.md` — guia passo-a-passo: pré-requisitos DNS, instalação em 1 comando, arquitetura, operação diária (logs, restart, backup, restore, renovação SSL), hardening e troubleshooting.
+
+### Comando de instalação na VM Debian
+```bash
+sudo git clone https://github.com/Tr3mbolon4/CONTROLE-ACESSO-CIPO-2.0.git /opt/cipolatti/src
+cd /opt/cipolatti/src/deploy
+sudo bash install_debian.sh portaria.suaempresa.com.br ti@suaempresa.com.br
+```
+
 ## Próximos passos sugeridos ao usuário
 - Testar o fluxo completo no frontend (login → dashboard → cadastrar visitante → agendamento → dar entrada).
 - Trocar `JWT_SECRET` e `ADMIN_PASSWORD` antes de qualquer uso em produção.
-- Configurar usuários reais (portaria/gestor/dsl/diretoria) via Configurações (admin).
+- Configurar usuários reais (portaria/gestor/dsl/diretoria) via Configurações (admin) – ou usar os seedados.
+- Subir para a VM Debian rodando `install_debian.sh <dominio> <email>`.

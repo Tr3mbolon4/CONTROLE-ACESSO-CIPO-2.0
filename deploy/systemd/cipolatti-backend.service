@@ -1,0 +1,29 @@
+[Unit]
+Description=CIPOLATTI - Backend FastAPI (Portaria / Controle de Acesso)
+After=network.target mongod.service
+Requires=mongod.service
+
+[Service]
+Type=simple
+User=cipolatti
+Group=cipolatti
+WorkingDirectory=/opt/cipolatti/backend
+EnvironmentFile=/opt/cipolatti/backend/.env
+# 2 workers para uma VM pequena. Ajuste para (2 * CPU + 1) em VMs maiores.
+ExecStart=/opt/cipolatti/backend/.venv/bin/uvicorn server:app \
+          --host 127.0.0.1 --port 8001 --workers 2 --proxy-headers --forwarded-allow-ips="*"
+Restart=always
+RestartSec=3
+# Limites e hardening
+LimitNOFILE=65535
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/cipolatti/backend /var/log/cipolatti
+
+StandardOutput=append:/var/log/cipolatti/backend.log
+StandardError=append:/var/log/cipolatti/backend.err.log
+
+[Install]
+WantedBy=multi-user.target
