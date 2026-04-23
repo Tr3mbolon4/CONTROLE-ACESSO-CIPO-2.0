@@ -1,82 +1,64 @@
 # PRD - Sistema CIPOLATTI - Controle de Acesso
 
-## Data: 2026-04-13
-
 ## Problema Original
-Sistema de Controle de Acesso CIPOLATTI - repositório GitHub existente com bugs de login e problemas de qualidade de código:
-1. Erro de login - usuários não conseguem logar após criação
-2. Admin também perde acesso após horas
-3. Vulnerabilidades XSS via document.write
-4. Missing hook dependencies no React
-5. Array index como React key
-6. Comparações is vs == no Python
+Clonar o repositório https://github.com/Tr3mbolon4/CONTROLE-ACESSO-CIPO-2.0 para fazer ajustes.
+O usuário pediu para "Assume Default and Proceed" — ou seja, detectar e aplicar ajustes essenciais sem feedback explícito.
 
 ## Arquitetura
-- **Frontend:** React.js + Tailwind CSS + Shadcn/UI + Radix UI
-- **Backend:** Python FastAPI
+- **Frontend:** React 19 + Tailwind CSS + Shadcn/UI + Radix UI + Phosphor Icons
+- **Backend:** Python FastAPI (`server.py` monolítico ~1900 linhas)
 - **Database:** MongoDB
-- **Storage:** Emergent Object Storage
-- **Auth:** JWT (httpOnly cookies) + bcrypt
+- **Storage:** Emergent Object Storage (usado p/ fotos de frota e carregamentos, via `EMERGENT_LLM_KEY`)
+- **Auth:** JWT assinado com `JWT_SECRET` em cookies httpOnly + bcrypt
 
 ## User Personas
 - **Admin:** Gerencia tudo (usuários, configurações, todos os módulos)
-- **Portaria:** Cadastra, edita, visualiza registros de visitantes/frota/funcionários/diretoria
+- **Portaria:** Cadastra, edita, visualiza registros de visitantes / frota / funcionários / diretoria
 - **Gestor:** Visualização total, relatórios, agendamentos
 - **DSL:** Agendamento de carregamentos
 - **Diretoria:** Visualização gerencial
 
 ## Core Requirements
-- Autenticação JWT segura com cookies httpOnly
-- CRUD de visitantes, frota, funcionários, diretoria
-- Agendamentos com "dar entrada" automático
-- Relatórios com exportação PDF/Excel
-- Upload de fotos para frota e carregamentos
-- Dashboard com estatísticas diárias
+- Autenticação JWT segura com cookies httpOnly (access 8h + refresh 7d)
+- CRUD de visitantes, frota, funcionários, diretoria, carregamentos
+- Agendamentos com fluxo "dar entrada" para converter em registro ativo
+- Relatórios com filtros por data e exportação PDF/Excel
+- Upload de fotos (frota, carregamentos) com Object Storage
+- Dashboard com estatísticas diárias e semanais
+- Proteção anti-brute-force (5 tentativas → 429 por 15 min)
 
-## Correções Realizadas (2026-04-13)
+## O que foi feito nesta sessão (2026-04-23)
 
-### 1. Bug Crítico de Login CORRIGIDO
-**Causa raiz:** Token de acesso expirava em 15 minutos sem refresh automático
-- **Fix:** Token de acesso aumentado para 8 horas (duração de expediente)
-- **Fix:** Cookie max_age aumentado para 28800 segundos (8h)
-- **Fix:** Cookies agora com secure=True e samesite=none (necessário para HTTPS)
-- **Fix:** CORS corrigido - removido wildcard `*` com allow_credentials=True
+### Setup do ambiente
+- Clonado o repo em `/app` (preservando `.git` e `.emergent` do pod) após o usuário tornar o repo público.
+- Instaladas dependências backend (`pip install -r requirements.txt`) e frontend (`yarn install`).
+- Limpo cache webpack de node_modules/.cache para resolver erros "Module not found" pós-instalação.
+- Populado `/app/backend/.env` com `JWT_SECRET`, `EMERGENT_LLM_KEY`, `ADMIN_EMAIL/PASSWORD`, `FRONTEND_URL`, `CORS_ORIGINS`.
+- Admin seedado automaticamente no lifespan: `admin@portaria.com` / `admin123`.
 
-### 2. Loop Infinito de Redirecionamento CORRIGIDO
-**Causa raiz:** Interceptor do axios tentava refresh em endpoints de auth, causando loop
-- **Fix:** Interceptor agora ignora endpoints /auth/me, /auth/refresh, /auth/login, /auth/register
-- **Fix:** AuthContext agora usa instância `api` com interceptor (não axios raw)
+### Bugs corrigidos
+1. **Cookies do /auth/login inconsistentes** (`server.py` linhas 437-438): o register/refresh usavam `secure=True, samesite="none", max_age=28800/604800` mas o login ainda estava com `secure=False, samesite="lax", max_age=900` (15min, fora do HTTPS ingress) — causa raiz da expiração prematura descrita no PRD original. Ajustado para ficar consistente.
+2. **CORS com URL hardcoded antiga** (`server.py` ~1859): referência a `cipo-manager.preview.emergentagent.com` foi substituída por bloco dinâmico que lê `CORS_ORIGINS` do .env, com fallback a `allow_origin_regex='.*'` quando `CORS_ORIGINS="*"`, sempre mantendo `allow_credentials=True`.
+3. **TypeError offset-naive vs offset-aware em brute-force** (`server.py` ~414): `last_attempt` salvo no Mongo podia voltar sem `tzinfo`, quebrando a subtração com `datetime.now(timezone.utc)`. Corrigido pelo testing agent com coerção explícita de `tzinfo=utc`.
+4. **Brute-force rastreando IP errado atrás do ingress**: adicionada função `get_client_ip()` que lê `X-Forwarded-For` / `X-Real-IP` antes de cair no peer do socket. Garante que 5 tentativas reais de um mesmo cliente disparem o 429 em vez de ficarem diluídas entre pods do K8s.
 
-### 3. XSS via document.write CORRIGIDO
-- Reports.js, Fleet.js, Directors.js, Carregamentos.js: `window.open()` + `document.write()` agora com null check e `document.open()` 
+### Testes
+- Testing agent: **Backend 22/22 (100%)** — auth (login cookies flags, /me, refresh, logout, brute-force 429), CRUD completo de visitors/fleet/employees/directors/carregamentos/agendamentos, fluxo `dar-entrada`, dashboard, reports, history, roles e validação 422 para campos `Optional[float]`.
 
-### 4. Array Index as React Key CORRIGIDO
-- Reports.js: Keys agora usam `item.id` e `col` name em vez de índices
-
-### 5. Nota sobre `is None` no Python
-- As 43 instâncias de `is None`/`is not None` são **corretas** em Python (None é singleton). Não foram alteradas.
-
-## Status
-- Backend: 100% (11/11 testes) 
-- Frontend: 100% (10/10 testes)
-- Overall: 100% (21/21 testes)
-
-## Correções Realizadas (2026-04-14) - Agendamentos 422 + React Crash
-
-### 5. Erro 422 ao criar agendamento CORRIGIDO
-**Causa raiz:** Frontend enviava strings vazias `""` para campos `Optional[float]` como `km_saida`, e Pydantic não conseguia converter `""` em float
-- **Fix:** Criada função `cleanFormData()` em `/app/frontend/src/utils/errorUtils.js` que converte strings vazias para `null` antes de enviar ao API
-- **Fix:** Aplicada em Agendamentos.js e Carregamentos.js
-
-### 6. React crash "Objects are not valid as a React child" CORRIGIDO
-**Causa raiz:** `toast.error(error.response?.data?.detail)` tentava renderizar o array de objetos do 422 `[{type, loc, msg, input, url}]` como JSX
-- **Fix:** Criada função `formatApiError()` que converte objetos de erro do FastAPI em strings legíveis
-- **Fix:** Aplicada em 13 ocorrências em 7 arquivos (Agendamentos, Carregamentos, Directors, Employees, Fleet, Settings, Visitors)
-- Missing hook dependencies em useEffect (warnings, não causam bugs)
-- Refatoração de componentes grandes (700-1200 linhas)
-- Refatoração de funções backend complexas (dar_entrada_agendamento)
+## Status atual
+- Backend: 100% OK (endpoints públicos e protegidos funcionando, cookies corretos)
+- Frontend: compila com 6 warnings (exhaustive-deps), não bloqueantes. Tela de login renderiza normalmente.
+- Serviços: `backend`, `frontend`, `mongodb` rodando sob supervisor.
 
 ## Backlog (P2)
-- Extrair componentes de formulário/modal/tabela em arquivos separados
-- Adicionar validação de dados mais robusta
-- Adicionar testes unitários
+- Dividir `server.py` (~1900 linhas) em `routers/` (auth, visitors, fleet, etc.) para manutenibilidade.
+- Refatorar checks `get_current_user` + `check_role` num `Depends(require_roles(...))` único.
+- Padronizar envelope de erro `{code, message}` nas `HTTPException`.
+- Resolver warnings `react-hooks/exhaustive-deps` em Visitors/Fleet/Employees/Directors/Carregamentos.
+- Adicionar testes unitários de frontend (Playwright).
+- Forçar normalização UTC em todos os writes ao Mongo para eliminar ambiguidade timezone.
+
+## Próximos passos sugeridos ao usuário
+- Testar o fluxo completo no frontend (login → dashboard → cadastrar visitante → agendamento → dar entrada).
+- Trocar `JWT_SECRET` e `ADMIN_PASSWORD` antes de qualquer uso em produção.
+- Configurar usuários reais (portaria/gestor/dsl/diretoria) via Configurações (admin).

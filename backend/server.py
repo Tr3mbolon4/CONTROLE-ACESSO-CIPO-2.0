@@ -400,10 +400,21 @@ async def register(data: UserRegister, response: Response):
     
     return {"id": user_id, "email": email, "name": data.name, "role": data.role}
 
+def get_client_ip(request: Request) -> str:
+    """Extract real client IP from common proxy headers, falling back to socket peer."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        # first entry is the original client
+        return xff.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
 @api_router.post("/auth/login")
 async def login(data: UserLogin, request: Request, response: Response):
     email = data.email.lower()
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     identifier = f"{ip}:{email}"
     
     # Check brute force
