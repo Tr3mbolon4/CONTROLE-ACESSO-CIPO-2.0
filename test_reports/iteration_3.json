@@ -1,0 +1,54 @@
+{
+  "summary": "Backend testing post repo-clone setup. 22/22 pytest tests pass covering auth (login cookies flags, /me, refresh, logout, brute-force 429), full CRUD for visitors/fleet/employees/directors/carregamentos/agendamentos, agendamento dar-entrada for visitante/frota/null km_saida, dashboard, reports, history, role permissions, 422 validation for empty-string on Optional[float]. Fixed 1 critical datetime timezone bug in auth brute-force check. Reported 1 medium-priority architectural bug: brute-force tracks by request.client.host which is the proxy/pod IP behind the K8s ingress + multi-pod backend, causing counts to split across pods/IPs (lockout only triggers after ~10 attempts total instead of 6).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/auth/login",
+        "issue": "Brute-force identifier uses request.client.host which resolves to the ingress/pod IP (10.64.130.9 / 10.64.129.166) behind the K8s load balancer. With 2 backend pods observed, attempts get distributed across pods and per-pod IP counters, so real-world lockout requires >6 attempts (saw ~10-12 before 429 triggered in multi-pod scenario). Should parse X-Forwarded-For / X-Real-IP header to get the real client IP and/or move brute-force state to MongoDB only (already in Mongo — the problem is only the identifier key)."
+      }
+    ],
+    "fixed_during_testing": [
+      {
+        "file": "/app/backend/server.py",
+        "line": 413,
+        "issue": "TypeError: can't subtract offset-naive and offset-aware datetimes — MongoDB returned last_attempt as naive datetime but was compared with datetime.now(timezone.utc). This made the lockout branch throw 500 instead of returning 429 once count >= 5.",
+        "fix": "Added tzinfo=timezone.utc coercion when last_attempt lacks tzinfo before the subtraction."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider switching brute-force identifier from request.client.host to the first entry of X-Forwarded-For (or X-Real-IP), with a fallback to request.client.host, so the lockout is robust behind the K8s ingress and multiple backend pods. Acceptance: 6 consecutive wrong-password attempts from a single external client must return 429 (currently ~10-12 needed).",
+    "Optional: lower the lockout threshold to e.g. 3 per (ip,email) if stricter policy is desired (PRD originally mentioned 5)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1887 lines — should be split into routers (auth, visitors, fleet, employees, directors, carregamentos, agendamentos, dashboard, reports) under /app/backend/routers/ for maintainability.",
+    "Brute-force uses request.client.host directly; behind ingress this is the proxy IP. Also, the datetime coercion fix just applied is a symptom of not using tz-aware defaults consistently — consider normalizing all Mongo datetimes on write with timezone.utc.",
+    "All endpoints that call get_current_user also rely on check_role individually; a FastAPI dependency (Depends(require_roles([...]))) would DRY this pattern and reduce auth-bypass risk.",
+    "HTTPException messages are free-text strings. Consider a standard error envelope {code, message} for the frontend interceptor.",
+    "serialize_doc manually walks dicts; using a Pydantic response_model with from_attributes + a Mongo->dict mapper would be more robust."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (datetime tz-aware coercion in brute-force check)",
+    "/app/backend/tests/backend_test.py (new pytest suite)"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "Admin: admin@portaria.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create TEST_ prefixed records and clean them up; residual test records removed via Mongo cleanup after the run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend is green (22/22). If frontend testing is requested next: use admin@portaria.com / admin123, backend URL https://access-control-251.preview.emergentagent.com. One open server-side note: brute-force lockout still uses request.client.host; if the frontend tries >5 wrong logins it may not trigger 429 in a single session due to multi-pod load-balancing — don't flag that as a blocker unless the main agent moves to X-Forwarded-For.",
+  "rca_of_the_issue": "Two root causes found during login brute-force testing: (1) Mongo-stored last_attempt was naive (no tzinfo), but the subtraction in server.py:413 used tz-aware datetime.now(timezone.utc), raising TypeError after the counter reached >=5 — fixed by coercing tzinfo=UTC on read. (2) Brute-force identifier = f'{request.client.host}:{email}'. Behind the K8s ingress the observed client.host alternates between 10.64.130.9 and 10.64.129.166 (the two backend pods' peer addresses), so 5 sequential wrong attempts from one real client get split across 2+ identifier keys. Mitigation: parse the first IP from X-Forwarded-For header when present."
+}
