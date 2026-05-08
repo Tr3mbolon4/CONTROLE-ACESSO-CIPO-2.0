@@ -4,10 +4,13 @@ import requests
 import sys
 import json
 import time
+import os
 from datetime import datetime
 
 class CipolattiAPITester:
-    def __init__(self, base_url="https://cipo-manager.preview.emergentagent.com"):
+    def __init__(self, base_url=None):
+        if base_url is None:
+            base_url = os.environ.get("BASE_URL", "http://localhost:8000")
         self.base_url = base_url
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
@@ -23,9 +26,9 @@ class CipolattiAPITester:
         self.tests_run += 1
         if success:
             self.tests_passed += 1
-            print(f"✅ {name} - PASSED")
+            print(f"[PASS] {name}")
         else:
-            print(f"❌ {name} - FAILED: {details}")
+            print(f"[FAIL] {name}: {details}")
         if details and success:
             print(f"   Details: {details}")
 
@@ -36,7 +39,7 @@ class CipolattiAPITester:
         if headers:
             test_headers.update(headers)
         
-        print(f"\n🔍 Testing {name}...")
+        print(f"\nTesting {name}...")
         print(f"   URL: {url}")
         
         try:
@@ -409,7 +412,7 @@ class CipolattiAPITester:
                 print("   Could not cleanup test user")
 
 def main():
-    print("🚀 Starting CIPOLATTI API Tests")
+    print("Starting CIPOLATTI API Tests")
     print("=" * 50)
     
     tester = CipolattiAPITester()
@@ -441,7 +444,7 @@ def main():
             if not result:
                 failed_tests.append(test_name)
         except Exception as e:
-            print(f"❌ {test_name} - EXCEPTION: {str(e)}")
+            print(f"[ERROR] {test_name}: {str(e)}")
             failed_tests.append(test_name)
             tester.tests_run += 1
     
@@ -450,17 +453,17 @@ def main():
     
     # Results
     print("\n" + "=" * 50)
-    print("📊 TEST RESULTS")
+    print("TEST RESULTS")
     print(f"Tests run: {tester.tests_run}")
     print(f"Tests passed: {tester.tests_passed}")
     print(f"Tests failed: {tester.tests_run - tester.tests_passed}")
     print(f"Success rate: {(tester.tests_passed/tester.tests_run*100):.1f}%" if tester.tests_run > 0 else "0%")
     
     if failed_tests:
-        print(f"\n❌ Failed tests: {', '.join(failed_tests)}")
+        print(f"\nFailed tests: {', '.join(failed_tests)}")
         return 1
     else:
-        print("\n✅ All tests passed!")
+        print("\nAll tests passed!")
         return 0
 
 if __name__ == "__main__":

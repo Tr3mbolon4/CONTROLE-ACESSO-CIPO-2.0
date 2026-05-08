@@ -4,8 +4,6 @@ load_dotenv()
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends, UploadFile, File, Query, Response
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
 import os
 import logging
 import bcrypt
@@ -13,12 +11,14 @@ import jwt
 import uuid
 import requests
 import io
+import mimetypes
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Any
 from contextlib import asynccontextmanager
+from backend.local_db import create_database
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,19 +31,53 @@ def get_brazil_now():
     """Retorna datetime atual no horário de Brasília"""
     return datetime.now(BR_TZ)
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+
+def get_brazil_today() -> str:
+    return get_brazil_now().strftime("%Y-%m-%d")
+
+
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=ACCESS_TOKEN_MAX_AGE,
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=REFRESH_TOKEN_MAX_AGE,
+        path="/",
+    )
+
+def ObjectId(value: Any) -> str:
+    return str(value)
+
+# Local database connection
+BASE_DIR = Path(__file__).resolve().parent
+SQLITE_PATH = os.environ.get("SQLITE_PATH", str(BASE_DIR / "data" / "portaria.db"))
+client, db = create_database(SQLITE_PATH)
 
 # JWT Configuration
 JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key-change-in-production-64chars")
 JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_MAX_AGE = int(os.environ.get("ACCESS_TOKEN_MAX_AGE", str(8 * 60 * 60)))
+REFRESH_TOKEN_MAX_AGE = int(os.environ.get("REFRESH_TOKEN_MAX_AGE", str(7 * 24 * 60 * 60)))
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax")
 
 # Object Storage Configuration
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "portaria-acesso"
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local").lower()
+LOCAL_STORAGE_DIR = Path(os.environ.get("LOCAL_STORAGE_DIR", str(BASE_DIR / "uploads")))
 storage_key = None
 
 # ================== HELPER FUNCTIONS ==================
@@ -78,19 +112,17 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 def serialize_doc(doc: dict) -> dict:
-    """Convert MongoDB document to JSON-serializable dict"""
+    """Convert stored documents to JSON-serializable dict"""
     if doc is None:
         return None
     result = {}
     for key, value in doc.items():
         if key == "_id":
             result["id"] = str(value)
-        elif isinstance(value, ObjectId):
-            result[key] = str(value)
         elif isinstance(value, datetime):
             result[key] = value.isoformat()
         elif isinstance(value, list):
-            result[key] = [serialize_doc(v) if isinstance(v, dict) else (str(v) if isinstance(v, ObjectId) else v) for v in value]
+            result[key] = [serialize_doc(v) if isinstance(v, dict) else v for v in value]
         elif isinstance(value, dict):
             result[key] = serialize_doc(value)
         else:
@@ -100,6 +132,9 @@ def serialize_doc(doc: dict) -> dict:
 # ================== OBJECT STORAGE ==================
 
 def init_storage():
+    if STORAGE_BACKEND == "local":
+        LOCAL_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        return "local-storage"
     global storage_key
     if storage_key:
         return storage_key
@@ -117,6 +152,18 @@ def init_storage():
         return None
 
 def put_object(path: str, data: bytes, content_type: str) -> dict:
+    if STORAGE_BACKEND == "local":
+        init_storage()
+        file_path = LOCAL_STORAGE_DIR / Path(path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(data)
+        return {
+            "path": path,
+            "storage_backend": "local",
+            "content_type": content_type,
+            "size": len(data),
+        }
+
     key = init_storage()
     if not key:
         raise HTTPException(status_code=500, detail="Storage not available")
@@ -129,6 +176,13 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
     return resp.json()
 
 def get_object(path: str) -> tuple:
+    if STORAGE_BACKEND == "local":
+        file_path = LOCAL_STORAGE_DIR / Path(path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Stored file not found")
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        return file_path.read_bytes(), content_type
+
     key = init_storage()
     if not key:
         raise HTTPException(status_code=500, detail="Storage not available")
@@ -139,6 +193,23 @@ def get_object(path: str) -> tuple:
     resp.raise_for_status()
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
+
+def delete_object(path: str) -> None:
+    if STORAGE_BACKEND == "local":
+        file_path = LOCAL_STORAGE_DIR / Path(path)
+        if file_path.exists():
+            file_path.unlink()
+        return
+
+    key = init_storage()
+    if not key:
+        return
+    requests.delete(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key},
+        timeout=60,
+    )
+
 # ================== AUTH HELPERS ==================
 
 async def get_current_user(request: Request) -> dict:
@@ -147,6 +218,8 @@ async def get_current_user(request: Request) -> dict:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
+    if not token:
+        token = request.query_params.get("auth")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -325,6 +398,17 @@ def normalize_placa(placa: Optional[str]) -> Optional[str]:
         return placa.upper().replace(" ", "").strip()
     return placa
 
+
+def cleanup_photo_list(photos: List[dict]) -> None:
+    for photo in photos or []:
+        storage_path = photo.get("storage_path")
+        if not storage_path:
+            continue
+        try:
+            delete_object(storage_path)
+        except Exception as exc:
+            logger.warning(f"Failed to cleanup photo {storage_path}: {exc}")
+
 # ================== STARTUP ==================
 
 @asynccontextmanager
@@ -354,8 +438,9 @@ async def lifespan(app: FastAPI):
         logger.info("Admin password updated")
     
     # Write test credentials
-    os.makedirs("/app/memory", exist_ok=True)
-    with open("/app/memory/test_credentials.md", "w") as f:
+    memory_dir = BASE_DIR.parent / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    with open(memory_dir / "test_credentials.md", "w", encoding="utf-8") as f:
         f.write("# Test Credentials\n\n")
         f.write(f"## Admin\n- Email: {admin_email}\n- Password: {admin_password}\n- Role: admin\n\n")
         f.write("## Auth Endpoints\n- POST /api/auth/login\n- POST /api/auth/register\n- POST /api/auth/logout\n- GET /api/auth/me\n- POST /api/auth/refresh\n")
@@ -394,9 +479,7 @@ async def register(data: UserRegister, response: Response):
     
     access_token = create_access_token(user_id, email, data.role)
     refresh_token = create_refresh_token(user_id)
-    
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=28800, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    set_auth_cookies(response, access_token, refresh_token)
     
     return {"id": user_id, "email": email, "name": data.name, "role": data.role}
 
@@ -430,9 +513,7 @@ async def login(data: UserLogin, request: Request, response: Response):
     user_id = str(user["_id"])
     access_token = create_access_token(user_id, email, user.get("role", "portaria"))
     refresh_token = create_refresh_token(user_id)
-    
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    set_auth_cookies(response, access_token, refresh_token)
     
     return {"id": user_id, "email": email, "name": user.get("name", ""), "role": user.get("role", "portaria")}
 
@@ -463,7 +544,15 @@ async def refresh_token(request: Request, response: Response):
         
         user_id = str(user["_id"])
         access_token = create_access_token(user_id, user["email"], user.get("role", "portaria"))
-        response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=28800, path="/")
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=COOKIE_SECURE,
+            samesite=COOKIE_SAMESITE,
+            max_age=ACCESS_TOKEN_MAX_AGE,
+            path="/",
+        )
         return {"message": "Token refreshed"}
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
@@ -775,6 +864,10 @@ async def get_fleet(fleet_id: str, request: Request):
 async def delete_fleet(fleet_id: str, request: Request):
     user = await get_current_user(request)
     await check_role(user, ["admin"])
+    fleet = await db.fleet.find_one({"_id": ObjectId(fleet_id)})
+    if fleet:
+        cleanup_photo_list(fleet.get("fotos_saida", []))
+        cleanup_photo_list(fleet.get("fotos_retorno", []))
     await db.fleet.delete_one({"_id": ObjectId(fleet_id)})
     return {"message": "Fleet record deleted"}
 
@@ -809,6 +902,7 @@ async def upload_fleet_photo(
     photo_doc = {
         "id": str(uuid.uuid4()),
         "storage_path": result["path"],
+        "storage_backend": result.get("storage_backend", STORAGE_BACKEND),
         "original_filename": file.filename,
         "content_type": file.content_type,
         "category": category,
@@ -827,11 +921,7 @@ async def upload_fleet_photo(
     return photo_doc
 
 @api_router.get("/fleet/{fleet_id}/photos/{photo_id}")
-async def get_fleet_photo(fleet_id: str, photo_id: str, request: Request, auth: Optional[str] = None):
-    # Support query param auth for img tags
-    if auth:
-        request.headers.__dict__["_list"].append((b"authorization", f"Bearer {auth}".encode()))
-    
+async def get_fleet_photo(fleet_id: str, photo_id: str, request: Request):
     try:
         await get_current_user(request)
     except:
@@ -1110,7 +1200,7 @@ async def delete_director(director_id: str, request: Request):
 async def get_dashboard(request: Request):
     await get_current_user(request)
     
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = get_brazil_today()
     
     # Today stats
     visitors_today = await db.visitors.count_documents({"data": today})
@@ -1123,7 +1213,7 @@ async def get_dashboard(request: Request):
     agendamentos_hoje = await db.agendamentos.count_documents({"data_prevista": today, "status": "pendente"})
     
     # Week stats
-    week_start = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    week_start = (get_brazil_now() - timedelta(days=7)).strftime("%Y-%m-%d")
     visitors_week = await db.visitors.count_documents({"data": {"$gte": week_start}})
     employees_week = await db.employees.count_documents({"data": {"$gte": week_start}})
     
@@ -1433,6 +1523,9 @@ async def update_carregamento(carregamento_id: str, data: CarregamentoUpdate, re
 async def delete_carregamento(carregamento_id: str, request: Request):
     user = await get_current_user(request)
     await check_role(user, ["admin"])
+    carregamento = await db.carregamentos.find_one({"_id": ObjectId(carregamento_id)})
+    if carregamento:
+        cleanup_photo_list(carregamento.get("fotos", []))
     await db.carregamentos.delete_one({"_id": ObjectId(carregamento_id)})
     return {"message": "Carregamento deleted"}
 
@@ -1524,7 +1617,7 @@ async def list_agendamentos(
 @api_router.get("/agendamentos/hoje")
 async def list_agendamentos_hoje(request: Request):
     await get_current_user(request)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = get_brazil_today()
     
     agendamentos = await db.agendamentos.find({
         "data_prevista": today,
@@ -1777,6 +1870,7 @@ async def upload_carregamento_photo(
     photo_doc = {
         "id": str(uuid.uuid4()),
         "storage_path": result["path"],
+        "storage_backend": result.get("storage_backend", STORAGE_BACKEND),
         "original_filename": file.filename,
         "content_type": file.content_type,
         "categoria": categoria,
