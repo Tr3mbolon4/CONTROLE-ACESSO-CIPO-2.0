@@ -37,7 +37,9 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # JWT Configuration
-JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key-change-in-production-64chars")
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable is required")
 JWT_ALGORITHM = "HS256"
 
 # Object Storage Configuration
@@ -336,8 +338,10 @@ async def lifespan(app: FastAPI):
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
     
     # Seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@portaria.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
+    if not admin_email or not admin_password:
+        raise RuntimeError("ADMIN_EMAIL and ADMIN_PASSWORD environment variables are required")
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
         hashed = hash_password(admin_password)
@@ -352,14 +356,6 @@ async def lifespan(app: FastAPI):
     elif not verify_password(admin_password, existing.get("password_hash", "")):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
         logger.info("Admin password updated")
-    
-    # Write test credentials
-    os.makedirs("/app/memory", exist_ok=True)
-    with open("/app/memory/test_credentials.md", "w") as f:
-        f.write("# Test Credentials\n\n")
-        f.write(f"## Admin\n- Email: {admin_email}\n- Password: {admin_password}\n- Role: admin\n\n")
-        f.write("## Auth Endpoints\n- POST /api/auth/login\n- POST /api/auth/register\n- POST /api/auth/logout\n- GET /api/auth/me\n- POST /api/auth/refresh\n")
-    
     # Init storage
     init_storage()
     
@@ -1860,8 +1856,9 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        os.environ.get("FRONTEND_URL", "http://localhost:3000"),
-        "https://cipo-manager.preview.emergentagent.com",
+        origin.strip()
+        for origin in os.environ.get("ALLOWED_ORIGINS", os.environ.get("FRONTEND_URL", "http://localhost:3000")).split(",")
+        if origin.strip()
     ],
     allow_credentials=True,
     allow_methods=["*"],
