@@ -4,12 +4,10 @@ import requests
 import sys
 import json
 import time
-import os
 from datetime import datetime
 
 class CipolattiAPITester:
-    def __init__(self, base_url=None):
-        base_url = base_url or os.environ.get("TEST_BASE_URL", "http://localhost:8000")
+    def __init__(self, base_url="https://cipo-manager.preview.emergentagent.com"):
         self.base_url = base_url
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
@@ -82,10 +80,7 @@ class CipolattiAPITester:
             "POST",
             "auth/login",
             200,
-            data={
-                "email": os.environ.get("TEST_ADMIN_EMAIL", ""),
-                "password": os.environ.get("TEST_ADMIN_PASSWORD", "")
-            }
+            data={"email": "admin@portaria.com", "password": "admin123"}
         )
         
         if success:
@@ -132,7 +127,7 @@ class CipolattiAPITester:
         test_user_data = {
             "name": f"Test User {int(time.time())}",
             "email": f"testuser{int(time.time())}@test.com",
-            "password": os.environ.get("TEST_NEW_USER_PASSWORD", "replace-before-running-tests"),
+            "password": "testpass123",
             "role": "portaria"
         }
         
