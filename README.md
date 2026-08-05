@@ -1,10 +1,10 @@
-# Controle de Acesso CIPO 2.0
+# Controle de Acesso Operacional 2.0
 
 Sistema web para controle operacional de acesso, portaria, visitantes, diretoria, frota, carregamentos, agendamentos, relatorios e fotos de evidencia.
 
 ## Visao Geral
 
-O projeto organiza rotinas de controle de acesso em uma aplicacao web composta por frontend React, API FastAPI e banco MongoDB. A versao 2.0 parece evoluir a familia de projetos `CONTROLE-ACESSO-CIPO`, incluindo fluxos de registro, consulta e relatorios.
+O projeto organiza rotinas de controle de acesso em uma aplicacao web composta por frontend React, API FastAPI e banco MongoDB. A versao 2.0 parece evoluir uma versao anterior relacionada, incluindo fluxos de registro, consulta e relatorios.
 
 ## Problema Resolvido
 
@@ -77,10 +77,10 @@ flowchart LR
 
 ## Status
 
-Versao relacionada ao projeto `CONTROLE-ACESSO-CIPO-1.0`, aparentemente mais recente. O estado de producao nao esta confirmado no conteudo atual.
+Versao relacionada a um projeto anterior de controle de acesso, aparentemente mais recente. O estado de producao nao esta confirmado no conteudo atual.
 
 ## Autor
 
-Desenvolvido por Michele Santana -- Kalion Tecnologia
+Desenvolvido por Michele Santana — Kalion Tecnologia
 
 Perfil profissional: https://github.com/Tr3mbolon4
