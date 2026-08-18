@@ -81,6 +81,6 @@ Versao relacionada a um projeto anterior de controle de acesso, aparentemente ma
 
 ## Autor
 
-Desenvolvido por Michele Santana — Kalion Tecnologia
+Desenvolvido por Alexandre Santana dos Santos — Kalion Tecnologia
 
 Perfil profissional: https://github.com/Tr3mbolon4
